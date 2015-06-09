@@ -26,6 +26,8 @@ class CurrentLocationViewController: UIViewController, CLLocationManagerDelegate
     var placemark: CLPlacemark?
     var performingReverseGeocoding = false
     var lastGeocodingError: NSError?
+    
+    var timer : NSTimer?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -93,6 +95,12 @@ class CurrentLocationViewController: UIViewController, CLLocationManagerDelegate
             return
         }
         
+        var distance = CLLocationDistance(DBL_MAX)
+        
+        if let location = location {
+            distance = newLocation.distanceFromLocation(location)
+        }
+        
         //to determine if the new reading is more useful than the previous one
         if location == nil || location!.horizontalAccuracy > newLocation.horizontalAccuracy {
             
@@ -106,6 +114,10 @@ class CurrentLocationViewController: UIViewController, CLLocationManagerDelegate
                 println("We're done!")
                 stopLocationManager()
                 configureGetButton()
+                
+                if distance > 0 {
+                    performingReverseGeocoding = false
+                }
             }
             
             //the app should only perform a single reverse geocoding request at a time, so first you check whether it is not busy yet by looking at the performingReverseGeocoding variable. Then you start the geocoder.
@@ -128,6 +140,15 @@ class CurrentLocationViewController: UIViewController, CLLocationManagerDelegate
                     self.performingReverseGeocoding = false
                     self.updateLabels()
                 })
+            }
+        } else if distance < 1.0 {
+            let timeInterval = newLocation.timestamp.timeIntervalSinceDate(location!.timestamp)
+            
+            if timeInterval > 10 {
+                println("Force done!")
+                stopLocationManager()
+                updateLabels()
+                configureGetButton()
             }
         }
     }
@@ -190,11 +211,18 @@ class CurrentLocationViewController: UIViewController, CLLocationManagerDelegate
             locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
             locationManager.startUpdatingLocation()
             updatingLocation = true
+            
+            //set up a timer object that sends the "didTimeOut" message to self after 60 seconds
+            timer = NSTimer.scheduledTimerWithTimeInterval(60, target: self, selector: Selector("didTimeOut"), userInfo: nil, repeats: false)
         }
     }
     
     func stopLocationManager() {
         if updatingLocation {
+            //cancel the timer in case the location manager is stopped before the time-out fires
+            if let timer = timer {
+                timer.invalidate()
+            }
             locationManager.stopUpdatingLocation()
             locationManager.delegate = nil
             updatingLocation = false
@@ -211,6 +239,18 @@ class CurrentLocationViewController: UIViewController, CLLocationManagerDelegate
     
     func stringFromPlacemark(placemark: CLPlacemark) -> String {
         return "\(placemark.subThoroughfare) \(placemark.thoroughfare)\n" + "\(placemark.locality) \(placemark.administrativeArea) " + "\(placemark.postalCode)"
+    }
+    
+    func didTimeOut() {
+        println("Time Out")
+        
+        if location == nil {
+            stopLocationManager()
+            
+            lastlocationError = NSError(domain: "MyLocationErrorDomain", code: 1, userInfo: nil)
+            updateLabels()
+            configureGetButton()
+        }
     }
 }
 
